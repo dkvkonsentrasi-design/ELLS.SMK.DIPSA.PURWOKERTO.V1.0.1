@@ -337,8 +337,9 @@ body{margin:0;background:var(--bg,#0b1020);color:var(--text,#f5f7fb)}
         <div class="field" id="reportWeekField"><label>Minggu</label><input id="reportWeek" type="week"></div>
         <div class="field" id="reportMonthField" style="display:none"><label>Bulan</label><input id="reportMonth" type="month"></div>
         <div class="field" id="reportYearField" style="display:none"><label>Tahun</label><input id="reportYear" type="number" min="2020" max="2100"></div>
-        <div class="field"><label>Kelas</label><select id="reportClass"><option value="">Semua kelas</option></select></div>
-        <div class="field"><label>Mata Pelajaran</label><select id="reportSubject"><option value="">Semua mata pelajaran</option></select></div>
+        <div class="field"><label>Kelas</label><select id="reportClass"><option value="">Pilih kelas</option></select></div>
+        <div class="field"><label>Mata Pelajaran</label><select id="reportSubject"><option value="">Pilih mata pelajaran</option></select></div>
+        <div class="field"><label>Tugas</label><select id="reportAssignment"><option value="">Pilih tugas</option></select></div>
       </div>
       <div class="form-actions"><button class="btn-teacher primary" type="button" onclick="renderGradeReport()">Tampilkan Rekap</button><button class="btn-teacher" type="button" onclick="exportGradeReport()">Export Excel</button></div>
       <div id="reportSummary" class="small" style="margin:14px 0"></div>
@@ -620,14 +621,20 @@ function isoWeekValue(date=new Date()){
 }
 function setupGradeReport(){
   const now=new Date(); document.getElementById('reportWeek').value=isoWeekValue(now); document.getElementById('reportMonth').value=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`; document.getElementById('reportYear').value=now.getFullYear();
-  const classEl=document.getElementById('reportClass'); classEl.innerHTML='<option value="">Semua kelas</option>'+classesData.map(c=>`<option value="${c.id}">${esc(c.nama_kelas)} — ${esc(c.tahun_ajaran||'')}</option>`).join('');
+  const classEl=document.getElementById('reportClass'); classEl.innerHTML='<option value="">Pilih kelas</option>'+classesData.map(c=>`<option value="${c.id}">${esc(c.nama_kelas)} — ${esc(c.tahun_ajaran||'')}</option>`).join('');
   refreshReportSubjects(); renderGradeReport();
 }
 function refreshReportSubjects(){
   const classId=document.getElementById('reportClass').value, el=document.getElementById('reportSubject'), old=el.value;
-  const list=subjectsData.filter(s=>!classId||String(s.kelas_id)===String(classId));
-  el.innerHTML='<option value="">Semua mata pelajaran</option>'+list.map(s=>`<option value="${s.id}">${esc(s.nama_mapel)} — ${esc(s.classes?.nama_kelas||'')}</option>`).join('');
-  if([...el.options].some(o=>o.value===old))el.value=old;
+  const list=subjectsData.filter(s=>classId&&String(s.kelas_id)===String(classId));
+  el.innerHTML='<option value="">Pilih mata pelajaran</option>'+list.map(s=>`<option value="${s.id}">${esc(s.nama_mapel)}</option>`).join('');
+  el.disabled=!classId; if([...el.options].some(o=>o.value===old))el.value=old; else el.value=''; refreshReportAssignments();
+}
+function refreshReportAssignments(){
+  const classId=document.getElementById('reportClass').value, subjectId=document.getElementById('reportSubject').value, el=document.getElementById('reportAssignment'), old=el.value;
+  const list=assignmentsData.filter(a=>classId&&subjectId&&String(a.kelas_id)===String(classId)&&String(a.mapel_id)===String(subjectId));
+  el.innerHTML='<option value="">Pilih tugas</option>'+list.map(a=>`<option value="${a.id}">${esc(a.judul)}${a.deadline?' — '+esc(new Date(a.deadline).toLocaleDateString('id-ID')):''}</option>`).join('');
+  el.disabled=!subjectId; if([...el.options].some(o=>o.value===old))el.value=old; else el.value='';
 }
 function reportDateRange(){
   const type=document.getElementById('reportPeriodType').value; let start,end,label;
@@ -640,21 +647,34 @@ function reportDateRange(){
   } return {start,end,label};
 }
 function getGradeReportRows(){
-  const range=reportDateRange(); if(!range)return {rows:[],range:null}; const classId=document.getElementById('reportClass').value, subjectId=document.getElementById('reportSubject').value;
-  const rows=submissionsData.filter(s=>{const dt=new Date(s.submitted_at||s.created_at); if(!(dt>=range.start&&dt<range.end))return false; const subj=subjectsData.find(x=>String(x.id)===String(s.assignments?.mapel_id)); const sid=s.assignments?.mapel_id, cid=s.assignments?.kelas_id||subj?.kelas_id; return (!classId||String(cid)===String(classId))&&(!subjectId||String(sid)===String(subjectId));}).map(s=>({siswa:s.profiles?.nama||studentsData.find(x=>String(x.id)===String(s.student_id))?.nama||'-',kelas:s.assignments?.subjects?.classes?.nama_kelas||classesData.find(c=>String(c.id)===String(s.assignments?.kelas_id))?.nama_kelas||'-',mapel:s.assignments?.subjects?.nama_mapel||subjectsData.find(x=>String(x.id)===String(s.assignments?.mapel_id))?.nama_mapel||'-',tugas:s.assignments?.judul||'-',tanggal:s.submitted_at?new Date(s.submitted_at):null,nilai:s.nilai,feedback:s.feedback||'',status:s.nilai===null||s.nilai===undefined?'Belum dinilai':'Dinilai'}));
-  return {rows,range};
+  const range=reportDateRange(); if(!range)return {rows:[],range:null};
+  const classId=document.getElementById('reportClass').value, subjectId=document.getElementById('reportSubject').value, assignmentId=document.getElementById('reportAssignment').value;
+  if(!classId||!subjectId||!assignmentId)return {rows:[],range,needsSelection:true};
+  const cls=classesData.find(c=>String(c.id)===String(classId)), subj=subjectsData.find(x=>String(x.id)===String(subjectId)), assignment=assignmentsData.find(a=>String(a.id)===String(assignmentId));
+  const classStudents=studentsData.filter(st=>String(st.kelas_id)===String(classId)).sort((a,b)=>(a.nama||'').localeCompare(b.nama||'','id'));
+  const rows=classStudents.map(st=>{
+    const candidates=submissionsData.filter(s=>String(s.student_id)===String(st.id)&&String(s.assignment_id)===String(assignmentId));
+    const submission=candidates.sort((a,b)=>new Date(b.submitted_at||b.created_at)-new Date(a.submitted_at||a.created_at))[0]||null;
+    let inPeriod=false; if(submission){const dt=new Date(submission.submitted_at||submission.created_at);inPeriod=dt>=range.start&&dt<range.end;}
+    const effective=inPeriod?submission:null;
+    const hasSubmission=!!effective, graded=hasSubmission&&effective.nilai!==null&&effective.nilai!==undefined&&effective.nilai!=='';
+    return {siswa:st.nama||'-',kelas:cls?.nama_kelas||st.classes?.nama_kelas||'-',mapel:subj?.nama_mapel||'-',tugas:assignment?.judul||'-',tanggal:hasSubmission&&effective.submitted_at?new Date(effective.submitted_at):null,nilai:graded?effective.nilai:null,feedback:hasSubmission?(effective.feedback||''):'',status:!hasSubmission?'Belum mengumpulkan':(graded?'Dinilai':'Belum dinilai')};
+  });
+  return {rows,range,assignment};
 }
 function renderGradeReport(){
-  const out=getGradeReportRows(), el=document.getElementById('reportTable'), summary=document.getElementById('reportSummary'); if(!out.range){summary.textContent='Pilih periode laporan.';el.innerHTML='';return}
-  const graded=out.rows.filter(r=>r.nilai!==null&&r.nilai!==undefined&&Number.isFinite(Number(r.nilai))), avg=graded.length?graded.reduce((a,r)=>a+Number(r.nilai),0)/graded.length:null;
-  summary.innerHTML=`<strong>${esc(out.range.label)}</strong> — ${out.rows.length} pengumpulan · ${graded.length} dinilai · ${out.rows.length-graded.length} belum dinilai · Rata-rata: <strong>${avg===null?'-':avg.toFixed(2)}</strong>`;
-  if(!out.rows.length){el.innerHTML='<div class="empty">Belum ada data pengumpulan pada periode/filter ini.</div>';return}
+  const out=getGradeReportRows(), el=document.getElementById('reportTable'), summary=document.getElementById('reportSummary');
+  if(!out.range){summary.textContent='Pilih periode laporan.';el.innerHTML='';return}
+  if(out.needsSelection){summary.textContent='Pilih kelas, mata pelajaran, dan tugas untuk menampilkan seluruh siswa.';el.innerHTML='<div class="empty">Lengkapi filter rekap terlebih dahulu.</div>';return}
+  const graded=out.rows.filter(r=>r.status==='Dinilai'), ungraded=out.rows.filter(r=>r.status==='Belum dinilai'), missing=out.rows.filter(r=>r.status==='Belum mengumpulkan'), avg=graded.length?graded.reduce((a,r)=>a+Number(r.nilai),0)/graded.length:null;
+  summary.innerHTML=`<strong>${esc(out.range.label)}</strong> · ${esc(out.assignment?.judul||'Tugas')} — ${out.rows.length} siswa · ${graded.length} dinilai · ${ungraded.length} belum dinilai · ${missing.length} belum mengumpulkan · Rata-rata: <strong>${avg===null?'-':avg.toFixed(2)}</strong>`;
+  if(!out.rows.length){el.innerHTML='<div class="empty">Tidak ada siswa pada kelas ini.</div>';return}
   el.innerHTML=`<div class="table-wrap"><table class="data-table"><thead><tr><th>No</th><th>Siswa</th><th>Kelas</th><th>Mata Pelajaran</th><th>Tugas</th><th>Tanggal</th><th>Nilai</th><th>Status</th><th>Feedback</th></tr></thead><tbody>${out.rows.map((r,i)=>`<tr><td>${i+1}</td><td><strong>${esc(r.siswa)}</strong></td><td>${esc(r.kelas)}</td><td>${esc(r.mapel)}</td><td>${esc(r.tugas)}</td><td>${r.tanggal?esc(r.tanggal.toLocaleString('id-ID')):'-'}</td><td>${r.nilai??'-'}</td><td>${esc(r.status)}</td><td>${esc(r.feedback||'-')}</td></tr>`).join('')}</tbody></table></div>`;
 }
 function exportGradeReport(){
-  const out=getGradeReportRows(); if(!out.range||!out.rows.length)return showMessage('Tidak ada data untuk diekspor pada periode/filter ini.','error');
+  const out=getGradeReportRows(); if(!out.range||out.needsSelection)return showMessage('Pilih kelas, mata pelajaran, dan tugas terlebih dahulu.','error'); if(!out.rows.length)return showMessage('Tidak ada siswa untuk diekspor.','error');
   const rows=out.rows.map((r,i)=>({'No':i+1,'Nama Siswa':r.siswa,'Kelas':r.kelas,'Mata Pelajaran':r.mapel,'Tugas':r.tugas,'Tanggal Pengumpulan':r.tanggal?r.tanggal.toLocaleString('id-ID'):'-','Nilai':r.nilai??'','Status':r.status,'Feedback':r.feedback}));
-  const ws=XLSX.utils.json_to_sheet(rows); ws['!cols']=[{wch:6},{wch:28},{wch:16},{wch:25},{wch:28},{wch:22},{wch:10},{wch:15},{wch:35}]; const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'Rekap Nilai'); XLSX.writeFile(wb,`REKAP-NILAI-${out.range.label.replace(/[^a-z0-9]+/gi,'-').toUpperCase()}.xlsx`);
+  const ws=XLSX.utils.json_to_sheet(rows); ws['!cols']=[{wch:6},{wch:28},{wch:16},{wch:25},{wch:28},{wch:22},{wch:10},{wch:20},{wch:35}]; const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'Rekap Nilai'); XLSX.writeFile(wb,`REKAP-NILAI-${(out.assignment?.judul||'TUGAS').replace(/[^a-z0-9]+/gi,'-').toUpperCase()}-${out.range.label.replace(/[^a-z0-9]+/gi,'-').toUpperCase()}.xlsx`);
 }
 
 async function loadStats(){const [c,s,sub]=await Promise.all([client.from('classes').select('id',{count:'exact',head:true}),client.from('profiles').select('id',{count:'exact',head:true}).eq('role','siswa'),client.from('submissions').select('id',{count:'exact',head:true})]);[c,s,sub].forEach(x=>{if(x.error)throw x.error});document.getElementById('statClasses').textContent=c.count??0;document.getElementById('statStudents').textContent=s.count??0;document.getElementById('statMaterials').textContent=materialsData.length;document.getElementById('statAssignments').textContent=assignmentsData.length;document.getElementById('statSubmissions').textContent=submissionsData.length}
@@ -688,7 +708,7 @@ document.getElementById('passwordForm').addEventListener('submit',async e=>{
 });
 
 document.getElementById('reportPeriodType').addEventListener('change',()=>{const t=document.getElementById('reportPeriodType').value;document.getElementById('reportWeekField').style.display=t==='week'?'':'none';document.getElementById('reportMonthField').style.display=t==='month'?'':'none';document.getElementById('reportYearField').style.display=t==='year'?'':'none';renderGradeReport()});
-document.getElementById('reportWeek').addEventListener('change',renderGradeReport);document.getElementById('reportMonth').addEventListener('change',renderGradeReport);document.getElementById('reportYear').addEventListener('change',renderGradeReport);document.getElementById('reportClass').addEventListener('change',()=>{refreshReportSubjects();renderGradeReport()});document.getElementById('reportSubject').addEventListener('change',renderGradeReport);
+document.getElementById('reportWeek').addEventListener('change',renderGradeReport);document.getElementById('reportMonth').addEventListener('change',renderGradeReport);document.getElementById('reportYear').addEventListener('change',renderGradeReport);document.getElementById('reportClass').addEventListener('change',()=>{refreshReportSubjects();renderGradeReport()});document.getElementById('reportSubject').addEventListener('change',()=>{refreshReportAssignments();renderGradeReport()});document.getElementById('reportAssignment').addEventListener('change',renderGradeReport);
 document.getElementById('logoutBtn').addEventListener('click',async()=>{try{await client.auth.signOut()}finally{location.href='teacher-login.html'}});document.getElementById('gradeModal').addEventListener('click',e=>{if(e.target.id==='gradeModal')closeGradeModal()});document.getElementById('passwordModal').addEventListener('click',e=>{if(e.target.id==='passwordModal')closePasswordModal()});
 (async()=>{try{const ok=await requireTeacher();if(ok)await refreshAll()}catch(e){console.error(e);showMessage(e.message||'Dashboard Guru gagal dimuat.','error')}})();
 </script>
