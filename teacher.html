@@ -118,6 +118,7 @@ body{margin:0;background:var(--bg,#0b1020);color:var(--text,#f5f7fb)}
     <button class="tab-btn admin-only" data-tab="teachers">Guru</button>
     <button class="tab-btn" data-tab="students">Siswa</button>
     <button class="tab-btn" data-tab="submissions">Pengumpulan & Nilai</button>
+    <button class="tab-btn" data-tab="reports">Rekap Nilai</button>
   </div>
 
   <section id="tab-overview" class="tab-content active">
@@ -286,7 +287,7 @@ body{margin:0;background:var(--bg,#0b1020);color:var(--text,#f5f7fb)}
         </select>
         <input id="studentSearch" class="btn-teacher" style="background:#0c1324;color:var(--text,#f5f7fb);min-width:220px" placeholder="Cari nama siswa">
       </div>
-      <div id="studentsTable"></div><p class="small" style="margin-top:12px">Hapus siswa akan menghapus akun login dan riwayat pengumpulan tugas siswa tersebut.</p>
+      <div id="studentsTable"></div><p class="small" style="margin-top:12px">Data siswa tidak dapat dihapus dari dashboard. Admin hanya dapat mengubah password akun siswa.</p>
     </div>
   </section>
 
@@ -326,6 +327,25 @@ body{margin:0;background:var(--bg,#0b1020);color:var(--text,#f5f7fb)}
       <div id="submissionsTable"></div>
     </div>
   </section>
+
+  <section id="tab-reports" class="tab-content">
+    <div class="panel">
+      <h2>Rekap Nilai</h2>
+      <p class="small">Rekap nilai berdasarkan tanggal pengumpulan tugas. Guru hanya melihat mata pelajaran yang diampu; Admin dapat melihat seluruh data.</p>
+      <div class="form-grid" style="margin-top:16px">
+        <div class="field"><label>Periode</label><select id="reportPeriodType"><option value="week">Mingguan</option><option value="month">Bulanan</option><option value="year">Tahunan</option></select></div>
+        <div class="field" id="reportWeekField"><label>Minggu</label><input id="reportWeek" type="week"></div>
+        <div class="field" id="reportMonthField" style="display:none"><label>Bulan</label><input id="reportMonth" type="month"></div>
+        <div class="field" id="reportYearField" style="display:none"><label>Tahun</label><input id="reportYear" type="number" min="2020" max="2100"></div>
+        <div class="field"><label>Kelas</label><select id="reportClass"><option value="">Semua kelas</option></select></div>
+        <div class="field"><label>Mata Pelajaran</label><select id="reportSubject"><option value="">Semua mata pelajaran</option></select></div>
+      </div>
+      <div class="form-actions"><button class="btn-teacher primary" type="button" onclick="renderGradeReport()">Tampilkan Rekap</button><button class="btn-teacher" type="button" onclick="exportGradeReport()">Export Excel</button></div>
+      <div id="reportSummary" class="small" style="margin:14px 0"></div>
+      <div id="reportTable"></div>
+    </div>
+  </section>
+
 </main>
 </div>
 
@@ -578,7 +598,7 @@ document.getElementById('studentForm').addEventListener('submit',async e=>{
 });
 
 async function loadStudents(){const {data,error}=await client.from('profiles').select('id,nama,jenis_kelamin,kelas_id,role,classes(nama_kelas,tahun_ajaran)').eq('role','siswa').order('nama');if(error)throw error;studentsData=data||[];document.getElementById('statStudents').textContent=studentsData.length;renderStudents()}
-function renderStudents(){const filter=document.getElementById('studentClassFilter').value,search=document.getElementById('studentSearch').value.trim().toLowerCase(),rows=studentsData.filter(s=>(!filter||String(s.kelas_id)===String(filter))&&(!search||(s.nama||'').toLowerCase().includes(search))),el=document.getElementById('studentsTable');if(!rows.length){el.innerHTML='<div class="empty">Tidak ada siswa yang cocok.</div>';return}el.innerHTML=`<div class="table-wrap"><table class="data-table"><thead><tr><th>Nama</th><th>Jenis Kelamin</th><th>Kelas</th><th>Tahun Ajaran</th><th>Aksi</th></tr></thead><tbody>${rows.map(s=>`<tr><td><strong>${esc(s.nama||'-')}</strong></td><td>${esc(s.jenis_kelamin||'-')}</td><td>${esc(s.classes?.nama_kelas||'-')}</td><td>${esc(s.classes?.tahun_ajaran||'-')}</td><td><div class="actions"><button class="btn-teacher" onclick="openPasswordModal('${String(s.id).replace(/'/g,"\\'")}', '${esc(s.nama||'Siswa')}', 'siswa')">Ubah Password</button><button class="btn-teacher danger" onclick="deleteStudent('${String(s.id).replace(/'/g,"\\'")}')">Hapus</button></div></td></tr>`).join('')}</tbody></table></div>`}
+function renderStudents(){const filter=document.getElementById('studentClassFilter').value,search=document.getElementById('studentSearch').value.trim().toLowerCase(),rows=studentsData.filter(s=>(!filter||String(s.kelas_id)===String(filter))&&(!search||(s.nama||'').toLowerCase().includes(search))),el=document.getElementById('studentsTable');if(!rows.length){el.innerHTML='<div class="empty">Tidak ada siswa yang cocok.</div>';return}el.innerHTML=`<div class="table-wrap"><table class="data-table"><thead><tr><th>Nama</th><th>Jenis Kelamin</th><th>Kelas</th><th>Tahun Ajaran</th><th>Aksi</th></tr></thead><tbody>${rows.map(s=>`<tr><td><strong>${esc(s.nama||'-')}</strong></td><td>${esc(s.jenis_kelamin||'-')}</td><td>${esc(s.classes?.nama_kelas||'-')}</td><td>${esc(s.classes?.tahun_ajaran||'-')}</td><td><div class="actions"><button class="btn-teacher" onclick="openPasswordModal('${String(s.id).replace(/'/g,"\\'")}', '${esc(s.nama||'Siswa')}', 'siswa')">Ubah Password</button></div></td></tr>`).join('')}</tbody></table></div>`}
 async function deleteStudent(id){if(currentProfile?.role!=='admin')return showMessage('Penghapusan siswa hanya dapat dilakukan oleh Admin.','error');const student=studentsData.find(s=>String(s.id)===String(id));if(!student)return;const kelas=student.classes?.nama_kelas?` (${student.classes.nama_kelas})`:'';if(!confirm(`Hapus siswa "${student.nama}"${kelas}? Akun login dan data pengumpulan tugas siswa ini juga akan dihapus. Tindakan ini tidak dapat dibatalkan.`))return;try{const {data:{session}}=await client.auth.getSession();if(!session)throw new Error('Sesi Admin tidak ditemukan. Silakan login kembali.');const res=await fetch(`${window.SUPABASE_URL}/functions/v1/delete-student`,{method:'POST',headers:{'Content-Type':'application/json','Authorization':`Bearer ${session.access_token}`,'apikey':window.SUPABASE_PUBLISHABLE_KEY},body:JSON.stringify({student_id:id})});const raw=await res.text();let result={};try{result=raw?JSON.parse(raw):{}}catch{}if(!res.ok)throw new Error(result.error||raw||`Gagal menghapus siswa (HTTP ${res.status}).`);showMessage(`Siswa ${student.nama} berhasil dihapus.`);await loadStudents();await loadStats()}catch(err){showMessage(err.message||'Gagal menghapus siswa.','error')}}
 document.getElementById('studentClassFilter').addEventListener('change',renderStudents);document.getElementById('studentSearch').addEventListener('input',renderStudents);
 async function loadSubmissions(){let q=client.from('submissions').select('id,assignment_id,student_id,file_url,submitted_at,status,nilai,feedback,created_at,updated_at,assignments(id,judul,kelas_id,mapel_id,deadline,subjects(nama_mapel,kelas_id,guru_id,classes(nama_kelas))),profiles!submissions_student_id_fkey(id,nama,kelas_id)').order('submitted_at',{ascending:false});const {data,error}=await q;if(error)throw error;submissionsData=data||[];if(currentProfile.role==='guru')submissionsData=submissionsData.filter(s=>s.assignments?.subjects?.guru_id===currentProfile.id);document.getElementById('statSubmissions').textContent=submissionsData.length;setupSubmissionFilters();renderSubmissions()}
@@ -590,8 +610,55 @@ function parseSubmissionFiles(value){if(!value)return[];try{const parsed=JSON.pa
 async function openGradeModal(id){const s=submissionsData.find(x=>Number(x.id)===Number(id));if(!s)return;currentGradeSubmission=s;document.getElementById('gradeInfo').innerHTML=`<strong>${esc(s.profiles?.nama||'Siswa')}</strong> — ${esc(s.assignments?.judul||'Tugas')}<br><span class="small">${esc(s.assignments?.subjects?.nama_mapel||'-')} · Kelas: ${esc(s.assignments?.subjects?.classes?.nama_kelas||'-')} · Dikirim: ${s.submitted_at?esc(new Date(s.submitted_at).toLocaleString('id-ID')):'-'}</span>`;const submissionFiles=parseSubmissionFiles(s.file_url);document.getElementById('gradeFileInfo').textContent=submissionFiles.length?(submissionFiles.length+' file: '+submissionFiles.map(x=>x.split('/').pop()).join(', ')):'Tidak ada file.';document.getElementById('gradeValue').value=s.nilai??'';document.getElementById('gradeFeedback').value=s.feedback??'';const fileButtons=document.getElementById('studentFileButtons');fileButtons.innerHTML=submissionFiles.length?submissionFiles.map((path,i)=>`<button class="btn-teacher primary" type="button" onclick="openStudentSubmissionFile(${i})">Buka File ${i+1}</button>`).join(''):'<span class="small">Tidak ada file untuk dibuka.</span>';document.getElementById('gradeModal').classList.add('show')}
 function closeGradeModal(){document.getElementById('gradeModal').classList.remove('show');currentGradeSubmission=null}async function openStudentSubmissionFile(index){const paths=parseSubmissionFiles(currentGradeSubmission?.file_url);const path=paths[Number(index)];if(!path)return alert('File tidak tersedia.');try{const {data,error}=await client.storage.from('student-submissions').createSignedUrl(path,3600);if(error)throw error;window.open(data.signedUrl,'_blank','noopener,noreferrer')}catch(e){alert('File tidak dapat dibuka: '+(e.message||e))}}
 document.getElementById('saveGradeBtn').addEventListener('click',async()=>{if(!currentGradeSubmission)return;const raw=document.getElementById('gradeValue').value.trim(),feedback=document.getElementById('gradeFeedback').value.trim(),nilai=raw===''?null:Number(raw);if(nilai!==null&&(!Number.isFinite(nilai)||nilai<0||nilai>100))return alert('Nilai harus antara 0 dan 100.');const btn=document.getElementById('saveGradeBtn');btn.disabled=true;try{const {error}=await client.from('submissions').update({nilai,feedback,status:nilai===null?'terkirim':'dinilai'}).eq('id',currentGradeSubmission.id);if(error)throw error;showMessage('Nilai dan feedback berhasil disimpan.');closeGradeModal();await loadSubmissions();await loadStats()}catch(e){showMessage(e.message||'Gagal menyimpan nilai.','error')}finally{btn.disabled=false}});
+
+function isoWeekValue(date=new Date()){
+  const d=new Date(Date.UTC(date.getFullYear(),date.getMonth(),date.getDate()));
+  const day=d.getUTCDay()||7; d.setUTCDate(d.getUTCDate()+4-day);
+  const yearStart=new Date(Date.UTC(d.getUTCFullYear(),0,1));
+  const week=Math.ceil((((d-yearStart)/86400000)+1)/7);
+  return `${d.getUTCFullYear()}-W${String(week).padStart(2,'0')}`;
+}
+function setupGradeReport(){
+  const now=new Date(); document.getElementById('reportWeek').value=isoWeekValue(now); document.getElementById('reportMonth').value=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`; document.getElementById('reportYear').value=now.getFullYear();
+  const classEl=document.getElementById('reportClass'); classEl.innerHTML='<option value="">Semua kelas</option>'+classesData.map(c=>`<option value="${c.id}">${esc(c.nama_kelas)} — ${esc(c.tahun_ajaran||'')}</option>`).join('');
+  refreshReportSubjects(); renderGradeReport();
+}
+function refreshReportSubjects(){
+  const classId=document.getElementById('reportClass').value, el=document.getElementById('reportSubject'), old=el.value;
+  const list=subjectsData.filter(s=>!classId||String(s.kelas_id)===String(classId));
+  el.innerHTML='<option value="">Semua mata pelajaran</option>'+list.map(s=>`<option value="${s.id}">${esc(s.nama_mapel)} — ${esc(s.classes?.nama_kelas||'')}</option>`).join('');
+  if([...el.options].some(o=>o.value===old))el.value=old;
+}
+function reportDateRange(){
+  const type=document.getElementById('reportPeriodType').value; let start,end,label;
+  if(type==='week'){
+    const v=document.getElementById('reportWeek').value; if(!v)return null; const [y,w]=v.split('-W').map(Number); const jan4=new Date(y,0,4); const jan4day=jan4.getDay()||7; start=new Date(y,0,4-(jan4day-1)+(w-1)*7); start.setHours(0,0,0,0); end=new Date(start); end.setDate(end.getDate()+7); label=`Minggu ${w}, ${y}`;
+  }else if(type==='month'){
+    const v=document.getElementById('reportMonth').value; if(!v)return null; const [y,m]=v.split('-').map(Number); start=new Date(y,m-1,1); end=new Date(y,m,1); label=new Intl.DateTimeFormat('id-ID',{month:'long',year:'numeric'}).format(start);
+  }else{
+    const y=Number(document.getElementById('reportYear').value); if(!y)return null; start=new Date(y,0,1); end=new Date(y+1,0,1); label=`Tahun ${y}`;
+  } return {start,end,label};
+}
+function getGradeReportRows(){
+  const range=reportDateRange(); if(!range)return {rows:[],range:null}; const classId=document.getElementById('reportClass').value, subjectId=document.getElementById('reportSubject').value;
+  const rows=submissionsData.filter(s=>{const dt=new Date(s.submitted_at||s.created_at); if(!(dt>=range.start&&dt<range.end))return false; const subj=subjectsData.find(x=>String(x.id)===String(s.assignments?.mapel_id)); const sid=s.assignments?.mapel_id, cid=s.assignments?.kelas_id||subj?.kelas_id; return (!classId||String(cid)===String(classId))&&(!subjectId||String(sid)===String(subjectId));}).map(s=>({siswa:s.profiles?.nama||studentsData.find(x=>String(x.id)===String(s.student_id))?.nama||'-',kelas:s.assignments?.subjects?.classes?.nama_kelas||classesData.find(c=>String(c.id)===String(s.assignments?.kelas_id))?.nama_kelas||'-',mapel:s.assignments?.subjects?.nama_mapel||subjectsData.find(x=>String(x.id)===String(s.assignments?.mapel_id))?.nama_mapel||'-',tugas:s.assignments?.judul||'-',tanggal:s.submitted_at?new Date(s.submitted_at):null,nilai:s.nilai,feedback:s.feedback||'',status:s.nilai===null||s.nilai===undefined?'Belum dinilai':'Dinilai'}));
+  return {rows,range};
+}
+function renderGradeReport(){
+  const out=getGradeReportRows(), el=document.getElementById('reportTable'), summary=document.getElementById('reportSummary'); if(!out.range){summary.textContent='Pilih periode laporan.';el.innerHTML='';return}
+  const graded=out.rows.filter(r=>r.nilai!==null&&r.nilai!==undefined&&Number.isFinite(Number(r.nilai))), avg=graded.length?graded.reduce((a,r)=>a+Number(r.nilai),0)/graded.length:null;
+  summary.innerHTML=`<strong>${esc(out.range.label)}</strong> — ${out.rows.length} pengumpulan · ${graded.length} dinilai · ${out.rows.length-graded.length} belum dinilai · Rata-rata: <strong>${avg===null?'-':avg.toFixed(2)}</strong>`;
+  if(!out.rows.length){el.innerHTML='<div class="empty">Belum ada data pengumpulan pada periode/filter ini.</div>';return}
+  el.innerHTML=`<div class="table-wrap"><table class="data-table"><thead><tr><th>No</th><th>Siswa</th><th>Kelas</th><th>Mata Pelajaran</th><th>Tugas</th><th>Tanggal</th><th>Nilai</th><th>Status</th><th>Feedback</th></tr></thead><tbody>${out.rows.map((r,i)=>`<tr><td>${i+1}</td><td><strong>${esc(r.siswa)}</strong></td><td>${esc(r.kelas)}</td><td>${esc(r.mapel)}</td><td>${esc(r.tugas)}</td><td>${r.tanggal?esc(r.tanggal.toLocaleString('id-ID')):'-'}</td><td>${r.nilai??'-'}</td><td>${esc(r.status)}</td><td>${esc(r.feedback||'-')}</td></tr>`).join('')}</tbody></table></div>`;
+}
+function exportGradeReport(){
+  const out=getGradeReportRows(); if(!out.range||!out.rows.length)return showMessage('Tidak ada data untuk diekspor pada periode/filter ini.','error');
+  const rows=out.rows.map((r,i)=>({'No':i+1,'Nama Siswa':r.siswa,'Kelas':r.kelas,'Mata Pelajaran':r.mapel,'Tugas':r.tugas,'Tanggal Pengumpulan':r.tanggal?r.tanggal.toLocaleString('id-ID'):'-','Nilai':r.nilai??'','Status':r.status,'Feedback':r.feedback}));
+  const ws=XLSX.utils.json_to_sheet(rows); ws['!cols']=[{wch:6},{wch:28},{wch:16},{wch:25},{wch:28},{wch:22},{wch:10},{wch:15},{wch:35}]; const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'Rekap Nilai'); XLSX.writeFile(wb,`REKAP-NILAI-${out.range.label.replace(/[^a-z0-9]+/gi,'-').toUpperCase()}.xlsx`);
+}
+
 async function loadStats(){const [c,s,sub]=await Promise.all([client.from('classes').select('id',{count:'exact',head:true}),client.from('profiles').select('id',{count:'exact',head:true}).eq('role','siswa'),client.from('submissions').select('id',{count:'exact',head:true})]);[c,s,sub].forEach(x=>{if(x.error)throw x.error});document.getElementById('statClasses').textContent=c.count??0;document.getElementById('statStudents').textContent=s.count??0;document.getElementById('statMaterials').textContent=materialsData.length;document.getElementById('statAssignments').textContent=assignmentsData.length;document.getElementById('statSubmissions').textContent=submissionsData.length}
-async function refreshAll(){try{await loadTeachers();await loadClasses();await loadSubjects();await Promise.all([loadMaterials(),loadAssignments(),loadStudents(),loadSubmissions()]);setupSubmissionFilters();renderSubmissions();await loadStats();}catch(e){console.error(e);showMessage(e.message||'Gagal memuat data.','error')}}
+async function refreshAll(){try{await loadTeachers();await loadClasses();await loadSubjects();await Promise.all([loadMaterials(),loadAssignments(),loadStudents(),loadSubmissions()]);setupSubmissionFilters();renderSubmissions();setupGradeReport();await loadStats();}catch(e){console.error(e);showMessage(e.message||'Gagal memuat data.','error')}}
 function openPasswordModal(userId,nama,role){
   if(currentProfile?.role!=='admin')return showMessage('Pengubahan password hanya dapat dilakukan oleh Admin.','error');
   document.getElementById('passwordUserId').value=userId;
@@ -620,6 +687,8 @@ document.getElementById('passwordForm').addEventListener('submit',async e=>{
   }catch(err){showMessage(err.message||'Gagal mengubah password.','error')}finally{btn.disabled=false}
 });
 
+document.getElementById('reportPeriodType').addEventListener('change',()=>{const t=document.getElementById('reportPeriodType').value;document.getElementById('reportWeekField').style.display=t==='week'?'':'none';document.getElementById('reportMonthField').style.display=t==='month'?'':'none';document.getElementById('reportYearField').style.display=t==='year'?'':'none';renderGradeReport()});
+document.getElementById('reportWeek').addEventListener('change',renderGradeReport);document.getElementById('reportMonth').addEventListener('change',renderGradeReport);document.getElementById('reportYear').addEventListener('change',renderGradeReport);document.getElementById('reportClass').addEventListener('change',()=>{refreshReportSubjects();renderGradeReport()});document.getElementById('reportSubject').addEventListener('change',renderGradeReport);
 document.getElementById('logoutBtn').addEventListener('click',async()=>{try{await client.auth.signOut()}finally{location.href='teacher-login.html'}});document.getElementById('gradeModal').addEventListener('click',e=>{if(e.target.id==='gradeModal')closeGradeModal()});document.getElementById('passwordModal').addEventListener('click',e=>{if(e.target.id==='passwordModal')closePasswordModal()});
 (async()=>{try{const ok=await requireTeacher();if(ok)await refreshAll()}catch(e){console.error(e);showMessage(e.message||'Dashboard Guru gagal dimuat.','error')}})();
 </script>
